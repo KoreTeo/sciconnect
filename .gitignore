@@ -1,0 +1,89 @@
+# Environment and local secrets
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.production.example
+
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*.class
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+**/.venv/
+venv/
+**/venv/
+env/
+**/env/
+
+# Backend runtime artifacts
+backend/app/uploads/
+backend/uploads/
+uploads/
+*.sqlite
+*.sqlite3
+*.db
+
+# Node / Next.js
+node_modules/
+**/node_modules/
+.next/
+**/.next/
+out/
+**/out/
+dist/
+**/dist/
+build/
+**/build/
+coverage/
+**/coverage/
+*.tsbuildinfo
+**/*.tsbuildinfo
+next-env.d.ts
+**/next-env.d.ts
+
+# Playwright
+frontend/test-results/
+**/test-results/
+frontend/playwright-report/
+**/playwright-report/
+frontend/blob-report/
+**/blob-report/
+playwright-report/
+test-results/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Docker / local volumes
+.docker/
+docker-data/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local documentation, deployment configs and screenshots (not for GitHub)
+docs/
+scripts/
+deploy/
+
+# Git metadata backup (local rollback only)
+.git.backup/

@@ -1,0 +1,152 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://sciconnect:${POSTGRES_PASSWORD}@db:5432/sciconnect
+  REDIS_URL: redis://redis:6379
+  SECRET_KEY: ${SECRET_KEY}
+  SMTP_HOST: ${SMTP_HOST}
+  SMTP_PORT: ${SMTP_PORT}
+  SMTP_FROM: ${SMTP_FROM}
+  SMTP_FROM_NAME: ${SMTP_FROM_NAME:-SciConnect}
+  SMTP_USE_TLS: ${SMTP_USE_TLS:-false}
+  SMTP_USE_SSL: ${SMTP_USE_SSL:-false}
+  FRONTEND_URL: https://${DOMAIN}
+  CORS_ORIGINS: https://${DOMAIN}
+  EMAIL_ASYNC: "true"
+  EMAIL_VERIFICATION_REQUIRED: ${EMAIL_VERIFICATION_REQUIRED:-true}
+  DEBUG: "false"
+  SEED_DEMO: ${SEED_DEMO:-true}
+  UPLOAD_DIR: /app/uploads
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sciconnect_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: sciconnect
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: sciconnect
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sciconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sciconnect_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sciconnect_redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - sciconnect_network
+
+  backend:
+    build: ./backend
+    container_name: sciconnect_backend
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - sciconnect_network
+
+  email-worker:
+    build: ./backend
+    container_name: sciconnect_email_worker
+    restart: unless-stopped
+    command: arq worker.WorkerSettings
+    environment:
+      <<: *backend-env
+    depends_on:
+      redis:
+        condition: service_started
+      backend:
+        condition: service_healthy
+    networks:
+      - sciconnect_network
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        NEXT_PUBLIC_API_URL: https://${DOMAIN}/api
+        NEXT_PUBLIC_COOKIE_SECURE: "true"
+    container_name: sciconnect_frontend
+    restart: unless-stopped
+    environment:
+      API_INTERNAL_URL: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://127.0.0.1:3000',(r)=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - sciconnect_network
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: sciconnect_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/conf.d:/etc/nginx/conf.d:ro
+      - certbot_www:/var/www/certbot:ro
+      - certbot_certs:/etc/letsencrypt:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    networks:
+      - sciconnect_network
+
+  certbot:
+    image: certbot/certbot:latest
+    container_name: sciconnect_certbot
+    profiles:
+      - certbot
+    volumes:
+      - certbot_www:/var/www/certbot
+      - certbot_certs:/etc/letsencrypt
+    networks:
+      - sciconnect_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+  certbot_www:
+  certbot_certs:
+
+networks:
+  sciconnect_network:
+    driver: bridge

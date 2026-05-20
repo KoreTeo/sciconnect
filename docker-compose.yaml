@@ -1,0 +1,116 @@
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://sciconnect:sciconnect123@db:5432/sciconnect
+  REDIS_URL: redis://redis:6379
+  SECRET_KEY: your-secret-key-change-in-production
+  SMTP_HOST: mailhog
+  SMTP_PORT: 1025
+  SMTP_FROM: noreply@sciconnect.local
+  SMTP_FROM_NAME: SciConnect
+  FRONTEND_URL: http://localhost:3000
+  EMAIL_ASYNC: "true"
+  EMAIL_VERIFICATION_REQUIRED: "false"
+  SEED_DEMO: "true"
+  UPLOAD_DIR: /app/uploads
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: sciconnect_db
+    environment:
+      POSTGRES_USER: sciconnect
+      POSTGRES_PASSWORD: sciconnect123
+      POSTGRES_DB: sciconnect
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sciconnect"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - sciconnect_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: sciconnect_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - sciconnect_network
+
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: sciconnect_mailhog
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+    networks:
+      - sciconnect_network
+
+  backend:
+    build: ./backend
+    container_name: sciconnect_backend
+    command: >
+      sh -c "cd /srv/backend && alembic upgrade head &&
+      cd /srv/backend/app && exec uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      <<: *backend-env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      mailhog:
+        condition: service_started
+    volumes:
+      - ./backend/app:/srv/backend/app
+      - ./backend/scripts:/srv/backend/scripts
+      - ./backend/alembic:/srv/backend/alembic
+      - ./backend/alembic.ini:/srv/backend/alembic.ini
+      - uploads_data:/app/uploads
+    networks:
+      - sciconnect_network
+
+  email-worker:
+    build: ./backend
+    container_name: sciconnect_email_worker
+    command: arq worker.WorkerSettings
+    environment:
+      <<: *backend-env
+    depends_on:
+      redis:
+        condition: service_started
+      mailhog:
+        condition: service_started
+    volumes:
+      - ./backend/app:/srv/backend/app
+    networks:
+      - sciconnect_network
+
+  frontend:
+    build: ./frontend
+    container_name: sciconnect_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+      API_INTERNAL_URL: http://backend:8000
+    depends_on:
+      - backend
+    networks:
+      - sciconnect_network
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:
+
+networks:
+  sciconnect_network:
+    driver: bridge
