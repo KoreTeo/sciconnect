@@ -44,13 +44,17 @@ def _set_auth_cookies(response: Response, access_token: str, refresh_token: str)
         max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
         samesite="lax",
         secure=settings.COOKIE_SECURE,
-        path="/auth/refresh",
+        path="/",
     )
 
 
 def _clear_auth_cookies(response: Response) -> None:
-    response.delete_cookie("access_token", path="/", samesite="lax")
-    response.delete_cookie("refresh_token", path="/auth/refresh", samesite="lax")
+    response.delete_cookie(
+        "access_token", path="/", samesite="lax", secure=settings.COOKIE_SECURE
+    )
+    response.delete_cookie(
+        "refresh_token", path="/", samesite="lax", secure=settings.COOKIE_SECURE
+    )
 
 router = APIRouter(prefix="/auth", tags=["Аутентификация"])
 
