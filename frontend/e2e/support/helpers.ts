@@ -21,9 +21,17 @@ export function authHeaders(token: string) {
 }
 
 export async function authenticatePage(page: Page, token: string) {
-  await page.addInitScript((value) => {
-    window.localStorage.setItem('access_token', value);
-  }, token);
+  await page.context().addCookies([
+    {
+      name: 'access_token',
+      value: token,
+      domain: new URL(page.url() || 'http://localhost:3000').hostname,
+      path: '/',
+      httpOnly: false, // Playwright sets it non-httpOnly; backend sets real httpOnly on login
+      secure: false,
+      sameSite: 'Lax',
+    },
+  ]);
 }
 
 export async function loginAs(page: Page, role: keyof typeof USERS) {

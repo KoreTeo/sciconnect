@@ -37,6 +37,9 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = False
     SMTP_USE_SSL: bool = False
 
+    # Cookies
+    COOKIE_SECURE: bool = False  # True в prod
+
     # Приложение
     APP_NAME: str = "SciConnect API"
     APP_VERSION: str = "1.0.0"

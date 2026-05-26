@@ -1,6 +1,7 @@
 import secrets
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from database import get_db
@@ -12,7 +13,6 @@ from schemas import (
     UserLogin,
     Token,
     UserResponse,
-    RefreshTokenRequest,
     ForgotPasswordRequest,
     ResetPasswordRequest,
     VerifyEmailRequest,
@@ -24,6 +24,33 @@ from services.cache import cache_get, cache_set, cache_delete
 from services.email import send_password_reset_email
 from services.email_verification import send_user_verification_email, verify_email_token
 from services.rate_limit import require_rate_limit
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    """Set HttpOnly auth cookies on the response."""
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        max_age=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        path="/",
+    )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        max_age=settings.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        samesite="lax",
+        secure=settings.COOKIE_SECURE,
+        path="/auth/refresh",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie("access_token", path="/", samesite="lax")
+    response.delete_cookie("refresh_token", path="/auth/refresh", samesite="lax")
 
 router = APIRouter(prefix="/auth", tags=["Аутентификация"])
 
@@ -80,7 +107,12 @@ async def register_organizer(user_data: UserOrganizerCreate, request: Request, d
 
 
 @router.post("/login", response_model=Token)
-async def login(login_data: UserLogin, request: Request, db: AsyncSession = Depends(get_db)):
+async def login(
+    login_data: UserLogin,
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+):
     await require_rate_limit(request, "auth:login", limit=100, window_seconds=60)
     result = await db.execute(select(User).where(User.email == login_data.email))
     user = result.scalar_one_or_none()
@@ -88,7 +120,7 @@ async def login(login_data: UserLogin, request: Request, db: AsyncSession = Depe
     if not user or not verify_password(login_data.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный email или пароль"
+            detail="Неверный email или пароль",
         )
 
     if not user.is_active:
@@ -96,13 +128,19 @@ async def login(login_data: UserLogin, request: Request, db: AsyncSession = Depe
 
     access_token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
     refresh_token = create_refresh_token(data={"sub": str(user.id)})
-
+    _set_auth_cookies(response, access_token, refresh_token)
     return Token(access_token=access_token, refresh_token=refresh_token)
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(body: RefreshTokenRequest, db: AsyncSession = Depends(get_db)):
-    payload = decode_token(body.refresh_token)
+async def refresh_token(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    cookie_rt: Optional[str] = Cookie(None, alias="refresh_token"),
+):
+    if not cookie_rt:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token отсутствует")
+    payload = decode_token(cookie_rt)
     if not payload or payload.get("type") != "refresh":
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Недействительный refresh token")
     user_id = int(payload.get("sub", 0))
@@ -111,8 +149,15 @@ async def refresh_token(body: RefreshTokenRequest, db: AsyncSession = Depends(ge
     if not user or not user.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Пользователь не найден")
     access_token = create_access_token(data={"sub": str(user.id), "role": user.role.value})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
-    return Token(access_token=access_token, refresh_token=refresh_token)
+    new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    _set_auth_cookies(response, access_token, new_refresh_token)
+    return Token(access_token=access_token, refresh_token=new_refresh_token)
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    _clear_auth_cookies(response)
+    return {"message": "Выход выполнен"}
 
 
 @router.post("/verify-email", response_model=UserResponse)
