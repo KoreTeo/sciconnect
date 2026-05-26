@@ -62,7 +62,7 @@ def _audit_conference(db: AsyncSession, actor: User, action: str, conference: Co
     )
 
 
-@router.get("/", response_model=list[ConferenceResponse])
+@router.get("", response_model=list[ConferenceResponse])
 async def get_conferences(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=100),
@@ -91,7 +91,7 @@ async def get_conferences(
     conferences = await list_conferences(db, query)
     data = [ConferenceResponse.model_validate(c).model_dump(mode="json") for c in conferences]
     await cache_set(cache_key, json.dumps(data, default=str), ttl=60)
-    return conferences
+    return data
 
 
 @router.get("/by-short-name/{short_name}", response_model=ConferenceResponse)
