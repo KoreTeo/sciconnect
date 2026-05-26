@@ -18,6 +18,7 @@ from models import (
     FormatEnum,
 )
 from auth import get_password_hash
+from services.cache import cache_delete_pattern
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,7 @@ async def seed_demo() -> bool:
                 logger.info("Seed: обновлён theme_json сайта iccs2026 (pages)")
             else:
                 logger.info("Seed: демо-данные уже есть (iccs2026)")
+            await cache_delete_pattern("conferences:")
             return True
 
         org = users["organizer@sciconnect.demo"]
@@ -286,6 +288,7 @@ async def seed_demo() -> bool:
         )
 
         await db.commit()
+        await cache_delete_pattern("conferences:")
         logger.info("Seed: демо-данные созданы")
         for email, pwd, _, _ in DEMO_USERS:
             logger.info("  %s / %s", email, pwd)
